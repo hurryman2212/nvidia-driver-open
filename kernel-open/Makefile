@@ -52,6 +52,30 @@ else
     endif
   endif
 
+  KERNEL_CONFIG := $(KERNEL_OUTPUT)/.config
+  KERNEL_CC_IS_CLANG := $(shell sed -n 's/^CONFIG_CC_IS_CLANG=//p' \
+    $(KERNEL_CONFIG) 2>/dev/null)
+  KERNEL_LD_IS_LLD := $(shell sed -n 's/^CONFIG_LD_IS_LLD=//p' \
+    $(KERNEL_CONFIG) 2>/dev/null)
+
+  ifeq ($(origin LLVM), undefined)
+    ifeq ($(KERNEL_CC_IS_CLANG), y)
+      LLVM := 1
+    endif
+  endif
+
+  ifneq ($(filter default undefined,$(origin CC)),)
+    ifeq ($(KERNEL_CC_IS_CLANG), y)
+      CC := clang
+    endif
+  endif
+
+  ifneq ($(filter default undefined,$(origin LD)),)
+    ifeq ($(KERNEL_LD_IS_LLD), y)
+      LD := ld.lld
+    endif
+  endif
+
   # If CC hasn't been set explicitly, check the value of CONFIG_CC_VERSION_TEXT.
   # Look for the compiler specified there, and use it by default, if found.
   ifeq ($(origin CC),default)
@@ -107,6 +131,9 @@ else
   KBUILD_PARAMS += NV_KERNEL_MODULES="$(NV_KERNEL_MODULES)"
   KBUILD_PARAMS += INSTALL_MOD_DIR="$(INSTALL_MOD_DIR)"
   KBUILD_PARAMS += NV_SPECTRE_V2=$(SPECTRE_V2_RETPOLINE)
+  ifneq ($(LLVM),)
+    KBUILD_PARAMS += LLVM=$(LLVM)
+  endif
 
   export ORIG_PAHOLE := $(PAHOLE)
 
