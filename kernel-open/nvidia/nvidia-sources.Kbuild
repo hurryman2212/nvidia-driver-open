@@ -63,6 +63,7 @@ NVIDIA_SOURCES += nvidia/i2c_nvswitch.c
 NVHWMON_SOURCES += nvidia/hwmon-main.c
 NVHWMON_SOURCES += nvidia/hwmon-rm.c
 NVHWMON_SOURCES += nvidia/hwmon-rusd.c
+NVHWMON_SOURCES += nvidia/hwmon-hotspot.c
 NVHWMON_SOURCES += nvidia/hwmon-thermal.c
 NVHWMON_SOURCES += nvidia/hwmon-temp-limit.c
 NVHWMON_SOURCES += nvidia/hwmon-fan.c

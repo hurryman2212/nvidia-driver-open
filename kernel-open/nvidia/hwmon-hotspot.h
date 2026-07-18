@@ -21,21 +21,14 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef NVHWMON_NVIDIA_H
-#define NVHWMON_NVIDIA_H
+#ifndef NVHWMON_HOTSPOT_H
+#define NVHWMON_HOTSPOT_H
 
-/* Centralized include point for NVIDIA private RMAPI and class definitions. */
-#include <nv-kernel-rmapi-ops.h>
-#include <nv-modeset-interface.h>
+#include "hwmon-main.h"
 
-#include <class/cl0000.h>
-#include <class/cl0080.h>
-#include <class/cl00de.h>
-#include <class/cl2080.h>
-#include <ctrl/ctrl0000/ctrl0000gpu.h>
-#include <ctrl/ctrl00de.h>
-#include <ctrl/ctrl2080/ctrl2080gpu.h>
-#include <ctrl/ctrl2080/ctrl2080mc.h>
-#include <ctrl/ctrl2080/ctrl2080thermal.h>
+/* Probe restricts the private register layout to GPUs that validate it. */
+void nvhwmon_hotspot_probe(struct nvhwmon_gpu *gpu);
+bool nvhwmon_hotspot_has_sensor(const struct nvhwmon_gpu *gpu);
+int nvhwmon_hotspot_read_temp(struct nvhwmon_gpu *gpu, long *val);
 
 #endif

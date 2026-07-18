@@ -31,6 +31,7 @@
 #include "hwmon-main.h"
 #include "hwmon-fan.h"
 #include "hwmon-device.h"
+#include "hwmon-hotspot.h"
 #include "hwmon-rm.h"
 #include "hwmon-rusd.h"
 #include "hwmon-temp-limit.h"
@@ -120,6 +121,7 @@ static int gpu_create(const nv_gpu_info_t *info, u32 index,
 		goto fail;
 
 	nvhwmon_fan_probe(gpu);
+	nvhwmon_hotspot_probe(gpu);
 	nvhwmon_thermal_probe(gpu);
 	nvhwmon_temp_limit_probe(gpu);
 

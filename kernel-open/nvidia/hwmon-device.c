@@ -29,6 +29,7 @@
 
 #include "hwmon-fan.h"
 #include "hwmon-device.h"
+#include "hwmon-hotspot.h"
 #include "hwmon-rusd.h"
 #include "hwmon-temp-limit.h"
 #include "hwmon-thermal.h"
@@ -105,7 +106,15 @@ static umode_t is_visible(const void *drvdata, enum hwmon_sensor_types type,
 				return 0444;
 			return 0;
 		}
-		channel -= NVHWMON_RUSD_TEMP_CHANNELS;
+		if (channel == NVHWMON_HOTSPOT_CHANNEL) {
+			if (!nvhwmon_hotspot_has_sensor(gpu))
+				return 0;
+			if (attr == hwmon_temp_input ||
+			    attr == hwmon_temp_label)
+				return 0444;
+			return 0;
+		}
+		channel -= NVHWMON_THERMAL_CHANNEL_BASE;
 		if (!nvhwmon_thermal_has_sensor(gpu, channel))
 			return 0;
 		if (attr == hwmon_temp_input || attr == hwmon_temp_label)
@@ -116,7 +125,7 @@ static umode_t is_visible(const void *drvdata, enum hwmon_sensor_types type,
 		if (attr == hwmon_temp_rated_max &&
 		    nvhwmon_thermal_has_rated_max(gpu, channel))
 			return 0444;
-		temp_channel = NVHWMON_RUSD_TEMP_CHANNELS + channel;
+		temp_channel = NVHWMON_THERMAL_CHANNEL_BASE + channel;
 		if (nvhwmon_temp_limit_has(gpu, temp_channel, attr))
 			return 0444;
 		return 0;
@@ -169,8 +178,10 @@ static int read_static(struct nvhwmon_gpu *gpu, enum hwmon_sensor_types type,
 			return nvhwmon_temp_limit_read(gpu, channel, attr, val);
 		if (channel < NVHWMON_RUSD_TEMP_CHANNELS)
 			return -EAGAIN;
+		if (channel == NVHWMON_HOTSPOT_CHANNEL)
+			return -EAGAIN;
 
-		channel -= NVHWMON_RUSD_TEMP_CHANNELS;
+		channel -= NVHWMON_THERMAL_CHANNEL_BASE;
 		if (attr == hwmon_temp_rated_min)
 			return nvhwmon_thermal_read_rated_min(gpu, channel,
 							      val);
@@ -202,8 +213,12 @@ static int read_temp(struct nvhwmon_gpu *gpu, u32 attr, int channel, long *val)
 		return attr == hwmon_temp_input ?
 			       nvhwmon_rusd_read_temp(gpu, channel, val) :
 			       -EOPNOTSUPP;
+	if (channel == NVHWMON_HOTSPOT_CHANNEL)
+		return attr == hwmon_temp_input ?
+			       nvhwmon_hotspot_read_temp(gpu, val) :
+			       -EOPNOTSUPP;
 
-	thermal_channel = channel - NVHWMON_RUSD_TEMP_CHANNELS;
+	thermal_channel = channel - NVHWMON_THERMAL_CHANNEL_BASE;
 	switch (attr) {
 	case hwmon_temp_input:
 		return nvhwmon_thermal_read_temp(gpu, thermal_channel, val);
@@ -311,8 +326,13 @@ static int read_string(struct device *dev, enum hwmon_sensor_types type,
 			return -EOPNOTSUPP;
 		if (channel < NVHWMON_RUSD_TEMP_CHANNELS) {
 			*str = nvhwmon_rusd_temp_label(channel);
+		} else if (channel == NVHWMON_HOTSPOT_CHANNEL) {
+			if (!nvhwmon_hotspot_has_sensor(gpu))
+				return -EOPNOTSUPP;
+			*str = "hotspot";
 		} else {
-			thermal_channel = channel - NVHWMON_RUSD_TEMP_CHANNELS;
+			thermal_channel =
+				channel - NVHWMON_THERMAL_CHANNEL_BASE;
 			*str = nvhwmon_thermal_label(gpu, thermal_channel);
 		}
 		return 0;

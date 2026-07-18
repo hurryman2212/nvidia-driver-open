@@ -211,7 +211,7 @@ void nvhwmon_temp_limit_probe(struct nvhwmon_gpu *gpu)
 		    NV2080_CTRL_THERMAL_SYSTEM_TARGET_GPU)
 			continue;
 
-		apply_gpu_limits(gpu, NVHWMON_RUSD_TEMP_CHANNELS + channel,
+		apply_gpu_limits(gpu, NVHWMON_THERMAL_CHANNEL_BASE + channel,
 				 &limits);
 	}
 }

@@ -39,10 +39,12 @@
 #define NVHWMON_MAX_FANS RUSD_FAN_COOLER_MAX_COOLERS
 #define NVHWMON_FAN_LABEL_LEN 8
 #define NVHWMON_RUSD_TEMP_CHANNELS RUSD_TEMPERATURE_TYPE_MAX
+#define NVHWMON_HOTSPOT_CHANNEL NVHWMON_RUSD_TEMP_CHANNELS
+#define NVHWMON_THERMAL_CHANNEL_BASE (NVHWMON_HOTSPOT_CHANNEL + 1)
 #define NVHWMON_THERMAL_MAX_SENSORS 16
 #define NVHWMON_THERMAL_LABEL_LEN 32
 #define NVHWMON_TEMP_CHANNELS \
-	(NVHWMON_RUSD_TEMP_CHANNELS + NVHWMON_THERMAL_MAX_SENSORS)
+	(NVHWMON_THERMAL_CHANNEL_BASE + NVHWMON_THERMAL_MAX_SENSORS)
 #define NVHWMON_POWER_CHANNELS 9
 
 struct nvhwmon_fan {
@@ -99,6 +101,13 @@ struct nvhwmon_temp_limits {
 	s32 emergency_mc;
 };
 
+struct nvhwmon_hotspot_cache {
+	unsigned long expires;
+	bool supported;
+	bool valid;
+	s32 temp_mc;
+};
+
 struct nvhwmon_gpu {
 	struct list_head node;
 	/* Compact local slot used to derive non-overlapping RM object handles. */
@@ -119,6 +128,7 @@ struct nvhwmon_gpu {
 	void *rusd_map;
 	/* RUSD is mmap-backed telemetry; thermal and fan controls use RM calls. */
 	struct nvhwmon_rusd_cache rusd_cache;
+	struct nvhwmon_hotspot_cache hotspot_cache;
 	unsigned long thermal_expires;
 	u8 thermal_count;
 	struct nvhwmon_thermal_sensor
