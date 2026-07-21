@@ -922,7 +922,9 @@ void nvDPPause(NVDPLibConnectorPtr pNVDpLibConnector)
         return;
     }
 
-    if (pDevEvo->skipConsoleRestore && pNVDpLibConnector->headMask != 0) {
+    if (pDevEvo->skipConsoleRestore &&
+        !pDevEvo->skipConsoleRestoreOnTeardown &&
+        pNVDpLibConnector->headMask != 0) {
         /* Clear vbios DisplayPort RAD scratch registers, see bug 200471345 */
 
         nvAssert(nvPopCount32(pNVDpLibConnector->headMask) == 1);

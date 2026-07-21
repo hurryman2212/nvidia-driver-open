@@ -591,7 +591,8 @@ static void HsReleaseFlipQueueEntry(
     /*
      * If a semaphore surface was specified, we can now write its release value.
      */
-    if (!pFlipState->syncObject.usingSyncpt &&
+    if (!pDevEvo->skipConsoleRestoreOnTeardown &&
+        !pFlipState->syncObject.usingSyncpt &&
         pFlipState->syncObject.u.semaphores.releaseSurface.pSurfaceEvo != NULL) {
 
         /*

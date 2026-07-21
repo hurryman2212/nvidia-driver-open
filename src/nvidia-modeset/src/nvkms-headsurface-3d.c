@@ -205,7 +205,9 @@ static void FreeNv3dChannel(NVHsChannelEvoRec *pHsChannel)
     pDispEvo = pHsChannel->pDispEvo;
     pDevEvo = pDispEvo->pDevEvo;
 
-    nv3dFreeChannelSurface(&pHsChannel->nv3d.channel);
+    nv3dFreeChannelSurface(
+        &pHsChannel->nv3d.channel,
+        pDevEvo->skipConsoleRestoreOnTeardown);
     nv3dFreeChannelObject(&pHsChannel->nv3d.channel);
     nv3dFreeChannelState(&pHsChannel->nv3d.channel);
 

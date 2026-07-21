@@ -1141,9 +1141,12 @@ static NvBool ReleaseModesetOwnership(struct NvKmsPerOpenDev *pOpenDev)
 
     pDevEvo->modesetOwner = NULL;
     pDevEvo->modesetOwnerOrSubOwnerChanged = TRUE;
-    pDevEvo->handleConsoleHotplugs = TRUE;
+    pDevEvo->handleConsoleHotplugs =
+        !pDevEvo->skipConsoleRestoreOnTeardown;
 
-    RestoreConsole(pDevEvo);
+    if (!pDevEvo->skipConsoleRestoreOnTeardown) {
+        RestoreConsole(pDevEvo);
+    }
     RevokePermissionsInternal(NVBIT(NV_KMS_PERMISSIONS_TYPE_FLIPPING) |
                               NVBIT(NV_KMS_PERMISSIONS_TYPE_MODESET) |
                               NVBIT(NV_KMS_PERMISSIONS_TYPE_SUB_OWNER),
@@ -4499,7 +4502,8 @@ static void DisableAndCleanVblankSyncObject(NVDispEvoRec *pDispEvo,
                                             NVVblankSyncObjectRec *pVblankSyncObject,
                                             NVEvoUpdateState *pUpdateState)
 {
-    if (nvApiHeadIsActive(pDispEvo, apiHead)) {
+    if (!pDispEvo->pDevEvo->skipConsoleRestoreOnTeardown &&
+        nvApiHeadIsActive(pDispEvo, apiHead)) {
         NvU32 head = nvGetPrimaryHwHead(pDispEvo, apiHead);
 
         nvAssert(head != NV_INVALID_HEAD);
@@ -4946,6 +4950,35 @@ static NvBool FramebufferConsoleDisabled(
     return TRUE;
 }
 
+static NvBool PrepareForRecovery(
+    struct NvKmsPerOpen *pOpen,
+    void *pParamsVoid)
+{
+    const struct NvKmsPrepareForRecoveryParams *pParams = pParamsVoid;
+    struct NvKmsPerOpenDev *pOpenDev =
+        GetPerOpenDev(pOpen, pParams->request.deviceHandle);
+    NVDevEvoPtr pDevEvo;
+
+    if (pOpenDev == NULL ||
+        pOpen->clientType != NVKMS_CLIENT_KERNEL_SPACE) {
+        return FALSE;
+    }
+
+    pDevEvo = pOpenDev->pDevEvo;
+    pDevEvo->skipConsoleRestoreOnTeardown = TRUE;
+    pDevEvo->skipConsoleRestore = TRUE;
+    pDevEvo->handleConsoleHotplugs = FALSE;
+
+    nvkms_free_timer(pDevEvo->consoleRestoreTimer);
+    pDevEvo->consoleRestoreTimer = NULL;
+
+    if (pDevEvo->modesetOwner == pOpenDev) {
+        return ReleaseModesetOwnership(pOpenDev);
+    }
+
+    return TRUE;
+}
+
 static NvBool RegisterVblankIntrCallback(struct NvKmsPerOpen *pOpen,
                                          void *pParamsVoid)
 {
@@ -5160,6 +5193,7 @@ NvBool nvKmsIoctl(
         ENTRY(NVKMS_IOCTL_FRAMEBUFFER_CONSOLE_DISABLED, FramebufferConsoleDisabled),
         ENTRY(NVKMS_IOCTL_REGISTER_VBLANK_INTR_CALLBACK, RegisterVblankIntrCallback),
         ENTRY(NVKMS_IOCTL_UNREGISTER_VBLANK_INTR_CALLBACK, UnregisterVblankIntrCallback),
+        ENTRY(NVKMS_IOCTL_PREPARE_FOR_RECOVERY, PrepareForRecovery),
     };
 
     struct NvKmsPerOpen *pOpen = pOpenVoid;

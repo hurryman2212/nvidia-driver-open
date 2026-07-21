@@ -122,7 +122,10 @@ void nv3dFreeChannelObject(
  */
 NvBool nv3dAllocChannelSurface(Nv3dChannelPtr p3dChannel);
 
-void nv3dFreeChannelSurface(Nv3dChannelPtr p3dChannel);
+/* skipChannelIdle is only safe when the channel cannot make progress. */
+void nv3dFreeChannelSurface(
+    Nv3dChannelPtr p3dChannel,
+    NvBool skipChannelIdle);
 
 
 /*

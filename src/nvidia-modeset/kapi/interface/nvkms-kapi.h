@@ -1675,6 +1675,19 @@ struct NvKmsKapiFunctionsTable {
         struct NvKmsKapiDevice *device,
         const NvU32 head,
         struct NvKmsKapiVblankIntrCallback *pCallback);
+
+    /*
+     * Return NV_TRUE when RM reports that the device requires recovery.  Query
+     * failures other than an unsupported command are treated as requiring
+     * recovery so that teardown does not submit more display methods.
+     */
+    NvBool (*deviceNeedsRecovery)(struct NvKmsKapiDevice *device);
+
+    /*
+     * Disable console restoration and release modeset ownership without
+     * submitting display methods to a device that requires recovery.
+     */
+    NvBool (*prepareForRecovery)(struct NvKmsKapiDevice *device);
 };
 
 /** @} */

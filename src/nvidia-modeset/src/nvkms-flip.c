@@ -1148,6 +1148,10 @@ void nvEvoClearSurfaceUsage(NVDevEvoRec *pDevEvo,
 {
     NvU32 head;
 
+    if (pDevEvo->skipConsoleRestoreOnTeardown) {
+        return;
+    }
+
     /*
      * If the core channel is no longer allocated, we don't need to
      * clear usage/sync. This assumes the channels are allocated/deallocated

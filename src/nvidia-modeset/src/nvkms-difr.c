@@ -239,8 +239,10 @@ void nvDIFRFree(NVDIFRStateEvoPtr pDifr)
     /* Cancel pending idle timer. */
     nvkms_free_timer(pDifr->idleTimer);
 
-    /* Leave DIFR enabled (default state). */
-    SetDisabledState(pDifr, FALSE);
+    /* Leave DIFR enabled (default state) unless the GPU requires recovery. */
+    if (!pDifr->pDevEvo->skipConsoleRestoreOnTeardown) {
+        SetDisabledState(pDifr, FALSE);
+    }
 
     /* Free resources. */
     FreeDIFRCopyEngine(pDifr);

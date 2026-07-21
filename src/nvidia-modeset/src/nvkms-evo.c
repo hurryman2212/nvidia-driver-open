@@ -47,6 +47,7 @@
 #include "nvkms-rmapi.h"
 #include "nvkms-surface.h"
 #include "nvkms-headsurface.h"
+#include "nvkms-headsurface-config.h"
 #include "nvkms-difr.h"
 #include "nvkms-vrr.h"
 #include "nvkms-ioctl.h"
@@ -5679,17 +5680,23 @@ void nvFreeCoreChannelEvo(NVDevEvoPtr pDevEvo)
         nvFreeUnixRmHandle(&pDevEvo->handleAllocator, pDevEvo->displayHandle);
         pDevEvo->displayHandle = 0;
 
-        if (!pDevEvo->skipConsoleRestore) {
-            nvRmVTSwitch(pDevEvo,
-                         NV0080_CTRL_OS_UNIX_VT_SWITCH_CMD_RESTORE_VT_STATE);
-        } else {
-            nvRmVTSwitch(pDevEvo,
-                         NV0080_CTRL_OS_UNIX_VT_SWITCH_CMD_CONSOLE_RESTORED);
+        if (!pDevEvo->skipConsoleRestoreOnTeardown) {
+            if (!pDevEvo->skipConsoleRestore) {
+                nvRmVTSwitch(
+                    pDevEvo,
+                    NV0080_CTRL_OS_UNIX_VT_SWITCH_CMD_RESTORE_VT_STATE);
+            } else {
+                nvRmVTSwitch(
+                    pDevEvo,
+                    NV0080_CTRL_OS_UNIX_VT_SWITCH_CMD_CONSOLE_RESTORED);
+            }
         }
     }
 
     // No longer possible that NVKMS is driving any displays, allow GC6.
-    nvRmSetGc6Allowed(pDevEvo, TRUE);
+    if (!pDevEvo->skipConsoleRestoreOnTeardown) {
+        nvRmSetGc6Allowed(pDevEvo, TRUE);
+    }
 
     nvFree(pDevEvo->gpus);
     pDevEvo->gpus = NULL;
@@ -8808,6 +8815,10 @@ NvBool nvFreeDevEvo(NVDevEvoPtr pDevEvo)
         pDevEvo->fbConsoleSurfaceHandle = 0;
     }
 
+    if (pDevEvo->skipConsoleRestoreOnTeardown) {
+        nvHsConfigFreeDeviceResourcesForRecovery(pDevEvo);
+    }
+
     nvFreeLutSurfacesEvo(pDevEvo);
 
     nvFreeCoreChannelEvo(pDevEvo);
@@ -9913,4 +9924,3 @@ NvBool nvEvoIsConsoleActive(const NVDevEvoRec *pDevEvo)
 
     return FALSE;
 }
-

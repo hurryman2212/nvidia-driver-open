@@ -189,7 +189,9 @@ NvBool nv3dAllocChannelSurface(Nv3dChannelPtr p3dChannel)
     return TRUE;
 }
 
-void nv3dFreeChannelSurface(Nv3dChannelPtr p3dChannel)
+void nv3dFreeChannelSurface(
+    Nv3dChannelPtr p3dChannel,
+    NvBool skipChannelIdle)
 {
     if (p3dChannel->p3dDevice == NULL) {
         return;
@@ -201,7 +203,9 @@ void nv3dFreeChannelSurface(Nv3dChannelPtr p3dChannel)
          * that any methods in the channel that might reference the
          * gpuAddress have idled before we unmap the address.
          */
-        nvPushIdleChannel(p3dChannel->pPushChannel);
+        if (!skipChannelIdle) {
+            nvPushIdleChannel(p3dChannel->pPushChannel);
+        }
 
         UnmapSurface(p3dChannel,
                      p3dChannel->surface.gpuAddress);
