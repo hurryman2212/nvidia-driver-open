@@ -274,6 +274,7 @@ enum NvKmsIoctlCommand {
     NVKMS_IOCTL_FRAMEBUFFER_CONSOLE_DISABLED,
     NVKMS_IOCTL_REGISTER_VBLANK_INTR_CALLBACK,
     NVKMS_IOCTL_UNREGISTER_VBLANK_INTR_CALLBACK,
+    NVKMS_IOCTL_PREPARE_FOR_RECOVERY,
 };
 
 
@@ -4335,6 +4336,27 @@ struct NvKmsFramebufferConsoleDisabledReply {
 struct NvKmsFramebufferConsoleDisabledParams {
     struct NvKmsFramebufferConsoleDisabledRequest request;
     struct NvKmsFramebufferConsoleDisabledReply reply;
+};
+
+/*
+ * NVKMS_IOCTL_PREPARE_FOR_RECOVERY
+ *
+ * Prepare an NVKMS device for teardown after the GPU has stopped responding.
+ * Console restore is disabled because it requires submitting display methods
+ * to the failed GPU.  This IOCTL can only be used by kernel-mode clients.
+ */
+
+struct NvKmsPrepareForRecoveryRequest {
+    NvKmsDeviceHandle deviceHandle;
+};
+
+struct NvKmsPrepareForRecoveryReply {
+    NvU32 padding;
+};
+
+struct NvKmsPrepareForRecoveryParams {
+    struct NvKmsPrepareForRecoveryRequest request;
+    struct NvKmsPrepareForRecoveryReply reply;
 };
 
 /*!

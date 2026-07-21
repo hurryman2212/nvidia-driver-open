@@ -833,10 +833,14 @@ ClearSurfaceUsageApply(NVDevEvoPtr pDevEvo,
     const NVDispEvoRec *pDispEvo = pDevEvo->pDispEvo[0];
     NvU32 apiHead;
     const NvU32 maxApiHeads = pDevEvo->numApiHeads * pDevEvo->numSubDevices;
-    struct NvKmsFlipRequestOneHead *pFlipApiHead =
-        nvCalloc(1, sizeof(*pFlipApiHead) * maxApiHeads);
+    struct NvKmsFlipRequestOneHead *pFlipApiHead;
     NvU32 numFlipApiHeads = 0;
 
+    if (pDevEvo->skipConsoleRestoreOnTeardown) {
+        return;
+    }
+
+    pFlipApiHead = nvCalloc(1, sizeof(*pFlipApiHead) * maxApiHeads);
     if (pFlipApiHead == NULL) {
         nvAssert(!"Failed to allocate memory");
         return;
@@ -1170,6 +1174,10 @@ void nvEvoDecrementSurfaceRefCntsWithSync(NVDevEvoPtr pDevEvo,
                                           NVSurfaceEvoPtr pSurfaceEvo,
                                           NvBool skipSync)
 {
+    if (pDevEvo->skipConsoleRestoreOnTeardown) {
+        skipSync = TRUE;
+    }
+
     nvAssert(pSurfaceEvo->rmRefCnt >= 1);
     pSurfaceEvo->rmRefCnt--;
 

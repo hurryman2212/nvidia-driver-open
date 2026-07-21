@@ -216,6 +216,8 @@ void nvHsConfigFreeResources(
     NVDevEvoRec *pDevEvo,
     NVHsConfig *pHsConfig);
 
+void nvHsConfigFreeDeviceResourcesForRecovery(NVDevEvoPtr pDevEvo);
+
 void nvHsConfigStop(
     NVDevEvoPtr pDevEvo,
     const NVHsConfig *pHsConfig);

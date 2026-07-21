@@ -392,7 +392,7 @@ void nvFreeLutSurfacesEvo(NVDevEvoPtr pDevEvo)
     }
 
     /* wait for any outstanding LUT updates before freeing the surface */
-    if (pDevEvo->core) {
+    if (pDevEvo->core && !pDevEvo->skipConsoleRestoreOnTeardown) {
         nvRMSyncEvoChannel(pDevEvo, pDevEvo->core, __LINE__);
     }
 

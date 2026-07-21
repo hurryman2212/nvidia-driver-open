@@ -720,7 +720,8 @@ void nvHsLeaveSwapGroup(
      * If the last member of the SwapGroup is leaving, change the "needed" state
      * of headSurface.
      */
-    if (pSwapGroup->nMembers == 1) {
+    if (pSwapGroup->nMembers == 1 &&
+        !pDevEvo->skipConsoleRestoreOnTeardown) {
         if (!HsSwapGroupUpdateHeadSurfaceNeeded(pDevEvo, pSwapGroup, FALSE)) {
             nvAssert(!"Failed to transition out of headSurface");
             /* XXX NVKMS HEADSURFACE TODO: we need to do something here... */
@@ -757,7 +758,8 @@ void nvHsLeaveSwapGroup(
      * group kicking off a flip and a subsequent vblank or headsurface
      * transition releasing the swapgroup.
      */
-    if (!teardown && !removingReadyFifo && (pSwapGroup->nMembers != 0)) {
+    if (!teardown && !pDevEvo->skipConsoleRestoreOnTeardown &&
+        !removingReadyFifo && (pSwapGroup->nMembers != 0)) {
         if (SwapGroupIsReady(pSwapGroup)) {
             FlipSwapGroup(pDevEvo, pSwapGroup);
         }

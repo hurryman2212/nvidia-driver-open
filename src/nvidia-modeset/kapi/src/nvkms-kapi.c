@@ -416,11 +416,62 @@ failed:
     return NV_FALSE;
 }
 
+static NvBool DeviceNeedsRecovery(struct NvKmsKapiDevice *device)
+{
+    NV2080_CTRL_GPU_GET_RECOVERY_ACTION_PARAMS params = { };
+    NvU32 ret;
+
+    if (device->hRmSubDevice == 0x0) {
+        return NV_TRUE;
+    }
+
+    ret = nvRmApiControl(device->hRmClient,
+                         device->hRmSubDevice,
+                         NV2080_CTRL_CMD_GPU_GET_RECOVERY_ACTION,
+                         &params,
+                         sizeof(params));
+
+    if (ret == NVOS_STATUS_SUCCESS) {
+        return params.action != NV2080_CTRL_GPU_RECOVERY_ACTION_NONE;
+    }
+
+    if (ret == NV_ERR_NOT_SUPPORTED) {
+        return NV_FALSE;
+    }
+
+    nvKmsKapiLogDeviceDebug(
+        device,
+        "Failed to query GPU recovery action (status 0x%08x); using recovery teardown",
+        ret);
+
+    return NV_TRUE;
+}
+
+static NvBool PrepareForRecovery(struct NvKmsKapiDevice *device)
+{
+    struct NvKmsPrepareForRecoveryParams params = { };
+
+    if (device->hKmsDevice == 0x0) {
+        return NV_TRUE;
+    }
+
+    params.request.deviceHandle = device->hKmsDevice;
+
+    return nvkms_ioctl_from_kapi(device->pKmsOpen,
+                                 NVKMS_IOCTL_PREPARE_FOR_RECOVERY,
+                                 &params, sizeof(params));
+}
+
 /*
  * Helper function to free NVKMS objects allocated for NvKmsKapiDevice.
  */
 static void KmsFreeDevice(struct NvKmsKapiDevice *device)
 {
+    if (DeviceNeedsRecovery(device) && !PrepareForRecovery(device)) {
+        nvKmsKapiLogDeviceDebug(
+            device, "Failed to prepare NVKMS for GPU recovery");
+    }
+
     /* Free notifier and semaphore memory */
 
     nvKmsKapiFreeNisoSurface(device, &device->semaphore);
@@ -624,6 +675,10 @@ done:
 
 static void FreeDevice(struct NvKmsKapiDevice *device)
 {
+    if (device == NULL) {
+        return;
+    }
+
     /* Free NVKMS objects allocated for NvKmsKapiDevice */
 
     KmsFreeDevice(device);
@@ -1011,6 +1066,14 @@ static void ReleaseOwnership(struct NvKmsKapiDevice *device)
     struct NvKmsReleaseOwnershipParams paramsRelease = { };
 
     if (device->hKmsDevice == 0x0) {
+        return;
+    }
+
+    if (DeviceNeedsRecovery(device)) {
+        if (!PrepareForRecovery(device)) {
+            nvKmsKapiLogDeviceDebug(
+                device, "Failed to prepare NVKMS for GPU recovery");
+        }
         return;
     }
 
@@ -4208,6 +4271,8 @@ NvBool nvKmsKapiGetFunctionsTableInternal
 
     funcsTable->registerVblankIntrCallback = RegisterVblankIntrCallback;
     funcsTable->unregisterVblankIntrCallback = UnregisterVblankIntrCallback;
+    funcsTable->deviceNeedsRecovery = DeviceNeedsRecovery;
+    funcsTable->prepareForRecovery = PrepareForRecovery;
 
     return NV_TRUE;
 }

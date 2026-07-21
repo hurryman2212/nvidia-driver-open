@@ -898,6 +898,7 @@ static int nv_drm_dev_load(struct drm_device *dev)
 static void nv_drm_dev_unload(struct drm_device *dev)
 {
     struct NvKmsKapiDevice *pDevice = NULL;
+    NvBool recoveryTeardown;
 
     struct nv_drm_device *nv_dev = to_nv_device(dev);
 
@@ -907,23 +908,38 @@ static void nv_drm_dev_unload(struct drm_device *dev)
         return;
     }
 
+    recoveryTeardown = nvKms->deviceNeedsRecovery(nv_dev->pDevice);
+
+    if (recoveryTeardown) {
+        NV_DRM_DEV_LOG_WARN(
+            nv_dev,
+            "Using recovery-safe teardown; skipping atomic display shutdown and console restore");
+    }
+
     /* Release modeset ownership if fbdev is enabled */
 
 #if defined(NV_DRM_FBDEV_AVAILABLE)
-    if (nv_dev->hasFramebufferConsole) {
+    if (nv_dev->hasFramebufferConsole && !recoveryTeardown) {
         drm_atomic_helper_shutdown(dev);
         nvKms->releaseOwnership(nv_dev->pDevice);
     }
 #endif
 
+    /* Stop new event work before tearing down the NVKMS device. */
+    mutex_lock(&nv_dev->lock);
+    atomic_set(&nv_dev->enable_event_handling, false);
+    mutex_unlock(&nv_dev->lock);
     cancel_delayed_work_sync(&nv_dev->hotplug_event_work);
+
+    if (recoveryTeardown &&
+        !nvKms->prepareForRecovery(nv_dev->pDevice)) {
+        NV_DRM_DEV_LOG_ERR(
+            nv_dev, "Failed to prepare NVKMS for recovery-safe teardown");
+    }
+
     mutex_lock(&nv_dev->lock);
 
     WARN_ON(nv_dev->subOwnershipGranted);
-
-    /* Disable event handling */
-
-    atomic_set(&nv_dev->enable_event_handling, false);
 
     /* Clean up output polling */
 

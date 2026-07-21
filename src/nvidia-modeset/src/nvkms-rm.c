@@ -2037,7 +2037,8 @@ void nvRmDestroyDisplays(NVDevEvoPtr pDevEvo)
         const NvU32 subDevice = pDevEvo->pSubDevices[pDispEvo->displayOwner]->handle;
         // Before freeing anything, dump anything left in the RM's DisplayPort
         // AUX channel log.
-        if (pDispEvo->dpAuxLoggingEnabled) {
+        if (pDispEvo->dpAuxLoggingEnabled &&
+            !pDevEvo->skipConsoleRestoreOnTeardown) {
             do {
                 ret = nvRmQueryDpAuxLog(pDispEvo, &tmp);
             } while (ret && tmp);
@@ -2050,12 +2051,13 @@ void nvRmDestroyDisplays(NVDevEvoPtr pDevEvo)
             // Disable DP-IRQ notifications for this subdevice
             setEventParams.event = NV2080_NOTIFIERS_DP_IRQ;
             setEventParams.action = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
-            if ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                                      subDevice,
-                                      NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                                      &setEventParams,
-                                      sizeof(setEventParams))
-                    != NVOS_STATUS_SUCCESS)) {
+            if (!pDevEvo->skipConsoleRestoreOnTeardown &&
+                ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                                       subDevice,
+                                       NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                                       &setEventParams,
+                                       sizeof(setEventParams))) !=
+                 NVOS_STATUS_SUCCESS)) {
                 nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
                                 "Failed to disable hotplug notifications (subdevice: %d) (error: 0x%x)", dispIndex, ret);
             }
@@ -2075,12 +2077,13 @@ void nvRmDestroyDisplays(NVDevEvoPtr pDevEvo)
             // Disable hotplug notifications for this subdevice
             setEventParams.event = NV2080_NOTIFIERS_HOTPLUG;
             setEventParams.action = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
-            if ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                                      subDevice,
-                                      NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                                      &setEventParams,
-                                      sizeof(setEventParams))
-                    != NVOS_STATUS_SUCCESS)) {
+            if (!pDevEvo->skipConsoleRestoreOnTeardown &&
+                ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                                       subDevice,
+                                       NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                                       &setEventParams,
+                                       sizeof(setEventParams))) !=
+                 NVOS_STATUS_SUCCESS)) {
                 nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
                                 "Failed to disable hotplug notifications (subdevice: %d) (error: 0x%x)", dispIndex, ret);
             }
@@ -2100,12 +2103,13 @@ void nvRmDestroyDisplays(NVDevEvoPtr pDevEvo)
             // Disable HDMI FRL retrain notifications for this subdevice
             setEventParams.event = NV2080_NOTIFIERS_HDMI_FRL_RETRAINING_REQUEST;
             setEventParams.action = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
-            if ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                                      subDevice,
-                                      NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                                      &setEventParams,
-                                      sizeof(setEventParams))
-                    != NVOS_STATUS_SUCCESS)) {
+            if (!pDevEvo->skipConsoleRestoreOnTeardown &&
+                ((ret = nvRmApiControl(nvEvoGlobal.clientHandle,
+                                       subDevice,
+                                       NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                                       &setEventParams,
+                                       sizeof(setEventParams))) !=
+                 NVOS_STATUS_SUCCESS)) {
                 nvEvoLogDev(pDevEvo, EVO_LOG_WARN,
                                 "Failed to disable HDMI FRL retrain notifications (subdevice: %d) (error: 0x%x)", dispIndex, ret);
             }
@@ -4156,11 +4160,13 @@ static void UnregisterNonStallInterruptCallback(NVDevEvoPtr pDevEvo)
         eventNotificationParams.event = NV2080_NOTIFIERS_FIFO_EVENT_MTHD;
         eventNotificationParams.action =
             NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
-        nvRmApiControl(nvEvoGlobal.clientHandle,
-                       pDevEvo->pSubDevices[0]->handle,
-                       NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                       &eventNotificationParams,
-                       sizeof(eventNotificationParams));
+        if (!pDevEvo->skipConsoleRestoreOnTeardown) {
+            nvRmApiControl(nvEvoGlobal.clientHandle,
+                           pDevEvo->pSubDevices[0]->handle,
+                           NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                           &eventNotificationParams,
+                           sizeof(eventNotificationParams));
+        }
 
         nvRmApiFree(nvEvoGlobal.clientHandle,
                     pDevEvo->pSubDevices[0]->handle,
@@ -4476,11 +4482,13 @@ void nvRmUnregisterDIFREventHandler(NVDevEvoPtr pDevEvo)
         prefetchEventParams.event = NV2080_NOTIFIERS_LPWR_DIFR_PREFETCH_REQUEST;
         prefetchEventParams.action = NV2080_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
 
-        nvRmApiControl(nvEvoGlobal.clientHandle,
-                       pDevEvo->pSubDevices[0]->handle,
-                       NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                       &prefetchEventParams,
-                       sizeof(prefetchEventParams));
+        if (!pDevEvo->skipConsoleRestoreOnTeardown) {
+            nvRmApiControl(nvEvoGlobal.clientHandle,
+                           pDevEvo->pSubDevices[0]->handle,
+                           NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                           &prefetchEventParams,
+                           sizeof(prefetchEventParams));
+        }
 
         nvRmApiFree(nvEvoGlobal.clientHandle,
                     pDevEvo->pSubDevices[0]->handle,
@@ -5391,11 +5399,13 @@ void nvRmUnregisterRgInterruptCallback(NVDispEvoPtr pDispEvo)
     params.event = NVC370_NOTIFIERS_RG_SEM_NOTIFICATION;
     params.action = NVC370_CTRL_EVENT_SET_NOTIFICATION_ACTION_DISABLE;
 
-    ret = nvRmApiControl(nvEvoGlobal.clientHandle,
-                         pDevEvo->displayHandle,
-                         NVC370_CTRL_CMD_EVENT_SET_NOTIFICATION,
-                         &params,
-                         sizeof(params));
+    ret = pDevEvo->skipConsoleRestoreOnTeardown ?
+        NVOS_STATUS_SUCCESS :
+        nvRmApiControl(nvEvoGlobal.clientHandle,
+                       pDevEvo->displayHandle,
+                       NVC370_CTRL_CMD_EVENT_SET_NOTIFICATION,
+                       &params,
+                       sizeof(params));
 
     if (ret != NVOS_STATUS_SUCCESS) {
         /*

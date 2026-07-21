@@ -758,12 +758,22 @@ NvBool nvEvoRestoreConsole(NVDevEvoPtr pDevEvo, const NvBool allowMST)
     NvBool ret = FALSE;
     NvU32 dispIndex;
     NVDispEvoPtr pDispEvo;
-    const NVEvoApiHandlesRec *pOpenDevSurfaceHandles =
+    const NVEvoApiHandlesRec *pOpenDevSurfaceHandles;
+    NVSurfaceEvoPtr pSurfaceEvo;
+    struct NvKmsSetModeParams *params;
+
+    if (pDevEvo->skipConsoleRestoreOnTeardown) {
+        pDevEvo->skipConsoleRestore = TRUE;
+        nvkms_free_timer(pDevEvo->consoleRestoreTimer);
+        pDevEvo->consoleRestoreTimer = NULL;
+        return TRUE;
+    }
+
+    pOpenDevSurfaceHandles =
         nvGetSurfaceHandlesFromOpenDevConst(pDevEvo->pNvKmsOpenDev);
-    NVSurfaceEvoPtr pSurfaceEvo =
+    pSurfaceEvo =
         nvEvoGetPointerFromApiHandle(pOpenDevSurfaceHandles,
                                      pDevEvo->fbConsoleSurfaceHandle);
-    struct NvKmsSetModeParams *params;
 
     /*
      * If this function fails to restore a console then NVKMS frees

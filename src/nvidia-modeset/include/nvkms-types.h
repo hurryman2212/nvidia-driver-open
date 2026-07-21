@@ -1122,6 +1122,12 @@ typedef struct _NVEvoDevRec {
      */
     NvBool              skipConsoleRestore       : 1;
     /*
+     * Indicates that the GPU requires recovery and teardown must not submit
+     * display methods or ask RM to restore the console. Unlike
+     * skipConsoleRestore, this remains set until the device is freed.
+     */
+    NvBool              skipConsoleRestoreOnTeardown : 1;
+    /*
      * Indicates that hotplug events that occur while NVKMS is the modeset owner
      * should trigger console restore modesets.
      */

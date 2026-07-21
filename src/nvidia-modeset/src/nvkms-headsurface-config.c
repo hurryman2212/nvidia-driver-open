@@ -1850,6 +1850,51 @@ static void HsConfigUpdateSurfaceRefCount(
         pDevEvo, pChannelConfig->cursor.pSurfaceEvo, increase);
 }
 
+/*
+ * Free the active headSurface configuration without submitting work to a GPU
+ * that requires recovery.  The normal nvHsConfigStop() path cannot be used
+ * here because it flips, idles channels, and waits for display progress.
+ */
+void nvHsConfigFreeDeviceResourcesForRecovery(NVDevEvoPtr pDevEvo)
+{
+    NVDispEvoPtr pDispEvo;
+    NvU32 apiHead, dispIndex;
+
+    nvAssert(pDevEvo->skipConsoleRestoreOnTeardown);
+
+    FOR_ALL_EVO_DISPLAYS(pDispEvo, dispIndex, pDevEvo) {
+        for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+            NVHsChannelEvoPtr pHsChannel = pDispEvo->pHsChannel[apiHead];
+
+            if (pHsChannel == NULL) {
+                continue;
+            }
+
+            if (pHsChannel->usingRgIntrForSwapGroups) {
+                nvHsRemoveRgLine1Callback(pHsChannel);
+            }
+            if (pHsChannel->vBlankCallback != NULL) {
+                nvHsRemoveVBlankCallback(pHsChannel);
+            }
+
+            nvHsFreeStatistics(pHsChannel);
+            nvHsDrainFlipQueue(pHsChannel);
+            HsConfigUpdateSurfaceRefCount(
+                pDevEvo, &pHsChannel->config, FALSE /* increase */);
+
+            nvHsFreeChannel(pHsChannel);
+            pDispEvo->pHsChannel[apiHead] = NULL;
+        }
+    }
+
+    for (apiHead = 0; apiHead < pDevEvo->numApiHeads; apiHead++) {
+        HsConfigFreeHeadSurfaceSurfaces(
+            pDevEvo,
+            &pDevEvo->apiHeadSurfaceAllDisps[apiHead],
+            FALSE /* surfacesReused */);
+    }
+}
+
 /*!
  * Check if flipLock should be allowed on this device.
  *
