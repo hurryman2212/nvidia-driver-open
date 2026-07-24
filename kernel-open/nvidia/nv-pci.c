@@ -2439,6 +2439,15 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
 #endif // NV_IS_EXPORT_SYMBOL_GPL_iommu_dev_disable_feature
 
     /*
+     * Block foreground and kernel-client opens before stopping the deferred
+     * open queue. This closes the race between a userspace readiness check and
+     * PCI unbind without forcing active references to be discarded.
+     */
+    down(&nvl->ldata_lock);
+    nv->flags |= NV_FLAG_UNBIND_LOCK;
+    up(&nvl->ldata_lock);
+
+    /*
      * Flush and stop open_q before proceeding with removal to ensure nvl
      * outlives all enqueued work items.
      */
@@ -2475,9 +2484,10 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
     if ((atomic64_read(&nvl->usage_count) != 0) && !(nv->is_external_gpu))
     {
         nv_printf(NV_DBG_ERRORS,
-                  "NVRM: Attempting to remove device %04x:%02x:%02x.%x with non-zero usage count!\n",
+                  "NVRM: Attempting to remove device %04x:%02x:%02x.%x with non-zero usage count %lld!\n",
                   NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
-                  NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
+                  NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn),
+                  (long long)atomic64_read(&nvl->usage_count));
 
         /*
          * We can't return from this function without corrupting state, so we wait for

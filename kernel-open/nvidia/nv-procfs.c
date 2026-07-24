@@ -898,6 +898,7 @@ nv_procfs_close_unbind_lock(
     nvidia_stack_t *sp = nvpp->sp;
     int rc = 0;
     nv_linux_state_t * nvl;
+    NvS64 usage_count;
     int value;
 
     if (0 != nvpp->off)
@@ -920,7 +921,8 @@ nv_procfs_close_unbind_lock(
         down(&nvl->ldata_lock);
         if ((value == 1) && !(nv->flags & NV_FLAG_UNBIND_LOCK))
         {
-            if (atomic64_read(&nvl->usage_count) == 0)
+            usage_count = atomic64_read(&nvl->usage_count);
+            if (usage_count == 0)
                 rm_unbind_lock(sp, nv);
 
             if (nv->flags & NV_FLAG_UNBIND_LOCK)
@@ -929,7 +931,9 @@ nv_procfs_close_unbind_lock(
             }
             else
             {
-                NV_DEV_PRINTF(NV_DBG_ERRORS, nv, "Could not acquire UnbindLock\n");
+                NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
+                              "Could not acquire UnbindLock; usage count is %lld\n",
+                              (long long)usage_count);
             }
         }
         else if ((value == 0) && (nv->flags & NV_FLAG_UNBIND_LOCK))
@@ -1466,12 +1470,9 @@ int nv_procfs_add_gpu(nv_linux_state_t *nvl)
             goto failed;
     }
 
-    if (os_is_vgx_hyper())
-    {
-        entry = NV_CREATE_PROC_FILE("unbindLock", proc_nvidia_gpu, unbind_lock, nv);
-        if (!entry)
-            goto failed;
-    }
+    entry = NV_CREATE_PROC_FILE("unbindLock", proc_nvidia_gpu, unbind_lock, nv);
+    if (!entry)
+        goto failed;
 
     if (nv_get_numa_status(nvl) != NV_IOCTL_NUMA_STATUS_DISABLED)
     {
