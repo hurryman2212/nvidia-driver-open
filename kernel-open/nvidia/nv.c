@@ -1656,15 +1656,12 @@ static int nv_open_device(nv_state_t *nv, nvidia_stack_t *sp)
         return -EPERM;
     }
 
-    if (os_is_vgx_hyper())
+    /* Fail opens after userspace has locked the GPU for unbind. */
+    if (nv->flags & NV_FLAG_UNBIND_LOCK)
     {
-        /* fail open if GPU is being unbound */
-        if (nv->flags & NV_FLAG_UNBIND_LOCK)
-        {
-            NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
-                          "Open failed as GPU is locked for unbind operation\n");
-            return -ENODEV;
-        }
+        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
+                      "Open failed as GPU is locked for unbind operation\n");
+        return -ENODEV;
     }
 
     NV_DEV_PRINTF(NV_DBG_INFO, nv, "Opening GPU with minor number %d\n",
