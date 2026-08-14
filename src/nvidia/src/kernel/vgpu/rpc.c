@@ -11130,6 +11130,17 @@ NV_STATUS rpcRmApiFree_GSP
     NV_STATUS status = NV_OK;
     NvU32 gpuMaskRelease = 0;
 
+    if (pGpu->currentRecoveryAction ==
+        NV2080_CTRL_GPU_RECOVERY_ACTION_GPU_PF_FLR)
+    {
+        //
+        // FLR discards all GSP-RM objects.  Treat the remote half of free as
+        // complete so CPU-RM destructors can finish releasing software state.
+        //
+        NV_PRINTF(LEVEL_INFO, "skipping GSP-RM free before FLR recovery\n");
+        return NV_OK;
+    }
+
     if (!rmDeviceGpuLockIsOwner(pGpu->gpuInstance))
     {
         NV_PRINTF(LEVEL_WARNING, "Calling RPC RmFree without adequate locks!\n");
@@ -11151,6 +11162,14 @@ NV_STATUS rpcRmApiFree_GSP
     status = _issueRpcAndWait(pGpu, pRpc);
     if (status != NV_OK)
     {
+        if (pGpu->currentRecoveryAction ==
+            NV2080_CTRL_GPU_RECOVERY_ACTION_GPU_PF_FLR)
+        {
+            NV_PRINTF(LEVEL_INFO, "ignoring GSP-RM free failure before FLR recovery\n");
+            status = NV_OK;
+            goto done;
+        }
+
         NV_PRINTF_COND(pRpc->bQuietPrints, LEVEL_INFO, LEVEL_ERROR,
             "GspRmFree failed: hClient=0x%08x; hObject=0x%08x; paramsStatus=0x%08x; status=0x%08x\n",
              hClient, hObject, rpc_params->status, status);
