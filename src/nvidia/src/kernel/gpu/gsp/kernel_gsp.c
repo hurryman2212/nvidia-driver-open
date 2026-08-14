@@ -272,9 +272,29 @@ _kgspGetActiveRpcDebugData
     }
 }
 
+static NvBool
+_kgspIsFLRRecoveryPending
+(
+    OBJGPU *pGpu
+)
+{
+    return pGpu->currentRecoveryAction ==
+        NV2080_CTRL_GPU_RECOVERY_ACTION_GPU_PF_FLR;
+}
+
 static NV_STATUS
 _kgspRpcSanityCheck(OBJGPU *pGpu, KernelGsp *pKernelGsp, OBJRPC *pRpc)
 {
+    if (_kgspIsFLRRecoveryPending(pGpu))
+    {
+        NV_PRINTF(LEVEL_INFO, "GPU requires FLR recovery, skipping RPC\n");
+        //
+        // Resource teardown treats full-chip reset as an expected reason for
+        // hardware cleanup to fail and continues releasing CPU-RM state.
+        //
+        pRpc->bQuietPrints = NV_TRUE;
+        return NV_ERR_GPU_IN_FULLCHIP_RESET;
+    }
     if (pKernelGsp->bFatalError)
     {
         NV_PRINTF(LEVEL_INFO, "GSP crashed, skipping RPC\n");
@@ -5222,6 +5242,18 @@ kgspUnloadRm_IMPL
     NV_STATUS status;
     NvBool bInPmTransition = (unloadMode != KGSP_UNLOAD_MODE_NORMAL);
     NvBool bGc6Entering = (unloadMode == KGSP_UNLOAD_MODE_GC6_ENTER);
+
+    if (unloadMode == KGSP_UNLOAD_MODE_NORMAL &&
+        _kgspIsFLRRecoveryPending(pGpu))
+    {
+        //
+        // GSP-RM cannot be expected to acknowledge an unload or suspend after
+        // it has requested PF FLR recovery.  The PCI layer resets the function
+        // after CPU-RM finishes releasing its software state.
+        //
+        NV_PRINTF(LEVEL_INFO, "skipping GSP-RM unload before FLR recovery\n");
+        return NV_OK;
+    }
 
 #if RMCFG_FEATURE_GSPRM_BULLSEYE || defined(GSPRM_BULLSEYE_ENABLE)
     kgspCollectGspInstrumentation(pGpu, pKernelGsp);
