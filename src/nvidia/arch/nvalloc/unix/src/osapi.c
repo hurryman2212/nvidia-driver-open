@@ -1835,6 +1835,7 @@ void NV_API_CALL rm_disable_adapter(
 )
 {
     THREAD_STATE_NODE threadState;
+    NV2080_CTRL_GPU_GET_RECOVERY_ACTION_PARAMS recoveryParams = {0};
     void      *fp;
 
     NV_ENTER_RM_RUNTIME(sp,fp);
@@ -1850,6 +1851,17 @@ void NV_API_CALL rm_disable_adapter(
     // LOCK: acquire API lock
     if (rmapiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_DESTROY) == NV_OK)
     {
+        OBJGPU *pGpu = NV_GET_NV_PRIV_PGPU(pNv);
+
+        if (pGpu != NULL)
+        {
+            gpuGetRecoveryAction(pGpu, &recoveryParams);
+            if (recoveryParams.action == NV2080_CTRL_GPU_RECOVERY_ACTION_GPU_PF_FLR)
+            {
+                pNv->flags |= NV_FLAG_TRIGGER_FLR;
+            }
+        }
+
         if (pNv->flags & NV_FLAG_PERSISTENT_SW_STATE)
         {
             RmPartiallyDisableAdapter(pNv);
