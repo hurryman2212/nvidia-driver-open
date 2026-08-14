@@ -909,6 +909,7 @@ static void nv_drm_dev_unload(struct drm_device *dev)
     }
 
     recoveryTeardown = nvKms->deviceNeedsRecovery(nv_dev->pDevice);
+    nv_dev->recoveryTeardown = recoveryTeardown;
 
     if (recoveryTeardown) {
         NV_DRM_DEV_LOG_WARN(
@@ -935,6 +936,16 @@ static void nv_drm_dev_unload(struct drm_device *dev)
         !nvKms->prepareForRecovery(nv_dev->pDevice)) {
         NV_DRM_DEV_LOG_ERR(
             nv_dev, "Failed to prepare NVKMS for recovery-safe teardown");
+    }
+
+    if (recoveryTeardown) {
+        /*
+         * Retire the DRM atomic state without touching the failed GPU.  The
+         * recovery path in nv_drm_atomic_commit() only swaps and releases
+         * software state.  Leaving the active state installed keeps connector
+         * references alive beyond drm_mode_config_cleanup().
+         */
+        drm_atomic_helper_shutdown(dev);
     }
 
     mutex_lock(&nv_dev->lock);

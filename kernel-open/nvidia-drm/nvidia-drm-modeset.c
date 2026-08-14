@@ -532,6 +532,7 @@ int nv_drm_atomic_check(struct drm_device *dev,
                         nv_drm_atomic_state_base_t *state)
 {
     int ret = 0;
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
 
     struct drm_crtc *crtc;
     struct drm_crtc_state *crtc_state;
@@ -542,6 +543,10 @@ int nv_drm_atomic_check(struct drm_device *dev,
     int j;
     bool cursor_surface_changed;
     bool cursor_only_commit;
+
+    if (nv_dev->recoveryTeardown) {
+        return 0;
+    }
 
     for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
 
@@ -699,6 +704,25 @@ int nv_drm_atomic_commit(struct drm_device *dev,
     struct drm_crtc *crtc = NULL;
     struct drm_crtc_state *crtc_state = NULL;
     struct nv_drm_device *nv_dev = to_nv_device(dev);
+
+    if (nv_dev->recoveryTeardown) {
+        ret = drm_atomic_helper_swap_state(state, false /* stall */);
+        if (WARN_ON(ret != 0)) {
+            return ret;
+        }
+
+        drm_atomic_helper_update_legacy_modeset_state(dev, state);
+
+        for_each_old_crtc_in_state(state, crtc, crtc_state, i) {
+            struct nv_drm_crtc *nv_crtc = to_nv_crtc(crtc);
+
+            while (!list_empty(&nv_crtc->flip_list)) {
+                __nv_drm_handle_flip_event(nv_crtc);
+            }
+        }
+
+        return 0;
+    }
 
     /*
      * XXX: drm_mode_config_funcs::atomic_commit() mandates to return -EBUSY

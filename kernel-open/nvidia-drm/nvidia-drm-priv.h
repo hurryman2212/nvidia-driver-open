@@ -158,6 +158,7 @@ struct nv_drm_device {
     NvBool supportsSyncpts;
     NvBool subOwnershipGranted;
     NvBool hasFramebufferConsole;
+    NvBool recoveryTeardown;
 
     struct drm_property *nv_out_fence_property;
     struct drm_property *nv_input_colorspace_property;
