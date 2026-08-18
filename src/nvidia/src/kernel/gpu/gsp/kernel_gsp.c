@@ -645,6 +645,14 @@ _kgspRpcRCTriggered
         pKernelChannel = kfifoChidMgrGetKernelChannel(pGpu, pKernelFifo,
                                                       pChidMgr,
                                                       rpc_params->chid);
+        //
+        // CPU-RM teardown can release the channel before a late GSP-RM RC
+        // event arrives.  FLR discards remote channel state, so consume the
+        // event without notifying a channel that no longer exists.
+        //
+        if ((pKernelChannel == NULL) && _kgspIsFLRRecoveryPending(pGpu))
+            return NV_OK;
+
         NV_CHECK_OR_RETURN(LEVEL_ERROR,
                            pKernelChannel != NULL,
                            NV_ERR_INVALID_CHANNEL);
