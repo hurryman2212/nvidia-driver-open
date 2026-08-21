@@ -2054,6 +2054,7 @@ nv_pci_probe
     nvl->dev               = &pci_dev->dev;
     nvl->pci_dev           = pci_dev;
     nvl->dma_dev.dev       = nvl->dev;
+    atomic_set(&nvl->automatic_recovery_task_pending, 0);
 
     nv->pci_info.vendor_id = pci_dev->vendor;
     nv->pci_info.device_id = pci_dev->device;

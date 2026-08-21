@@ -37,6 +37,7 @@
 #include "nv_ref.h"
 #include "nvVer.h"
 #include "os/os.h"
+#include "os-interface.h"
 #include "nvrm_registry.h"
 #include "gpu_mgr/gpu_mgr.h"
 #include "core/thread_state.h"
@@ -7486,6 +7487,17 @@ _gpuRefreshRecoveryActionInLock
             {
                 nvErrorLog_va(pGpu, GPU_RECOVERY_ACTION_CHANGED, "GPU recovery action changed from 0x%x (%s) to 0x%x (%s)",
                     oldAction, gpuRecoveryActionName(pGpu, oldAction), newAction, gpuRecoveryActionName(pGpu, newAction));
+            }
+
+            if (newAction == NV2080_CTRL_GPU_RECOVERY_ACTION_GPU_PF_FLR)
+            {
+                rmStatus = os_schedule_gpu_recovery(pGpu->pOsGpuInfo);
+                if (rmStatus != NV_OK)
+                {
+                    NV_PRINTF(LEVEL_ERROR,
+                              "Failed to schedule automatic PF FLR recovery: 0x%x\n",
+                              rmStatus);
+                }
             }
         }
     }
