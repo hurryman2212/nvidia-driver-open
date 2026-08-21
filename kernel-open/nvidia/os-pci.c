@@ -23,8 +23,110 @@
 
 #define  __NO_VERSION__
 
+#include <linux/kthread.h>
+
 #include "os-interface.h"
 #include "nv-linux.h"
+
+static int nv_gpu_recovery_thread(void *data)
+{
+    struct pci_dev *pci_dev = data;
+    const struct device_driver *driver = READ_ONCE(pci_dev->dev.driver);
+    int ret;
+
+    if (!driver || driver->owner != THIS_MODULE)
+    {
+        dev_warn(&pci_dev->dev,
+                 "canceling automatic PF FLR recovery because the NVIDIA driver is no longer bound\n");
+        goto done;
+    }
+
+    dev_warn(&pci_dev->dev,
+             "starting automatic PF FLR recovery; waiting for active clients to close\n");
+
+    device_release_driver(&pci_dev->dev);
+    if (pci_dev->dev.driver)
+    {
+        dev_err(&pci_dev->dev,
+                "automatic PF FLR recovery failed to unbind the driver\n");
+        goto done;
+    }
+
+#if NV_IS_EXPORT_SYMBOL_PRESENT_device_driver_attach
+    ret = device_driver_attach(driver, &pci_dev->dev);
+#else
+    ret = device_attach(&pci_dev->dev);
+    if (ret > 0)
+        ret = 0;
+    else if (ret == 0)
+        ret = -ENODEV;
+#endif
+    if (ret != 0)
+    {
+        dev_err(&pci_dev->dev,
+                "automatic PF FLR recovery failed to rebind the driver: %d\n",
+                ret);
+    }
+    else
+    {
+        dev_info(&pci_dev->dev, "automatic PF FLR recovery completed\n");
+    }
+
+done:
+    pci_dev_put(pci_dev);
+#if defined(module_put_and_kthread_exit)
+    module_put_and_kthread_exit(0);
+#else
+    module_put_and_exit(0);
+#endif
+}
+
+NV_STATUS NV_API_CALL os_schedule_gpu_recovery(void *pOsGpuInfo)
+{
+    nv_state_t *nv = pOsGpuInfo;
+    nv_linux_state_t *nvl;
+    struct pci_dev *pci_dev;
+    struct task_struct *task;
+
+    if (!nv || !nv->os_state)
+        return NV_ERR_INVALID_ARGUMENT;
+
+    nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    if (!nvl->pci_dev ||
+        atomic_cmpxchg(&nvl->automatic_recovery_task_pending, 0, 1) != 0)
+    {
+        return NV_OK;
+    }
+
+    if (!try_module_get(THIS_MODULE))
+    {
+        atomic_set(&nvl->automatic_recovery_task_pending, 0);
+        return NV_ERR_INVALID_STATE;
+    }
+
+    pci_dev = pci_dev_get(nvl->pci_dev);
+    if (!pci_dev)
+    {
+        atomic_set(&nvl->automatic_recovery_task_pending, 0);
+        module_put(THIS_MODULE);
+        return NV_ERR_OBJECT_NOT_FOUND;
+    }
+
+    task = kthread_run(nv_gpu_recovery_thread, pci_dev,
+                       "nvidia-recovery/%s", pci_name(pci_dev));
+    if (IS_ERR(task))
+    {
+        NV_DEV_PRINTF(NV_DBG_ERRORS, nv,
+                      "failed to start automatic PF FLR recovery task: %ld\n",
+                      PTR_ERR(task));
+        atomic_set(&nvl->automatic_recovery_task_pending, 0);
+        pci_dev_put(pci_dev);
+        module_put(THIS_MODULE);
+        return NV_ERR_INSUFFICIENT_RESOURCES;
+    }
+
+    return NV_OK;
+}
 
 void* NV_API_CALL os_pci_init_handle(
     NvU32 domain,
