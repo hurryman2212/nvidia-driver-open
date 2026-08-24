@@ -35,6 +35,9 @@
 #include <drm/drm_device.h>
 #include <drm/drm_gem.h>
 
+#include <linux/kref.h>
+#include <linux/rwsem.h>
+
 #include "nvidia-drm-os-interface.h"
 
 #include "nvkms-kapi.h"
@@ -105,6 +108,10 @@ struct nv_drm_device {
     struct drm_device *dev;
 
     struct NvKmsKapiDevice *pDevice;
+
+    struct kref ref;
+    struct rw_semaphore access_lock;
+    NvBool unplugged;
 
     /*
      * Lock to protect drm-subsystem and fields of this structure
@@ -199,6 +206,26 @@ struct nv_drm_device {
 
     nv_drm_workthread vblank_worker;
 };
+
+void nv_drm_device_get(struct nv_drm_device *nv_dev);
+void nv_drm_device_put(struct nv_drm_device *nv_dev);
+
+static inline bool nv_drm_dev_enter(struct nv_drm_device *nv_dev)
+{
+    down_read(&nv_dev->access_lock);
+
+    if (nv_dev->unplugged) {
+        up_read(&nv_dev->access_lock);
+        return false;
+    }
+
+    return true;
+}
+
+static inline void nv_drm_dev_exit(struct nv_drm_device *nv_dev)
+{
+    up_read(&nv_dev->access_lock);
+}
 
 static inline NvU32 nv_drm_next_display_semaphore(
     struct nv_drm_device *nv_dev)

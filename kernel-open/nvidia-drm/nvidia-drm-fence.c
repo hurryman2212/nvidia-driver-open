@@ -34,6 +34,7 @@
 #include "nvidia-dma-resv-helper.h"
 #include "nv_drm_common_ioctl.h"
 
+#include <drm/drm_drv.h>
 #include <linux/dma-fence.h>
 
 #define NV_DRM_SEMAPHORE_SURFACE_FENCE_MAX_TIMEOUT_MS 5000
@@ -477,9 +478,6 @@ int nv_drm_prime_fence_context_create_ioctl(struct drm_device *dev,
                                           &nv_prime_fence_context->base,
                                           &p->handle,
                                           filep);
-    if (err) {
-        __nv_drm_prime_fence_context_destroy(&nv_prime_fence_context->base);
-    }
 
     return err;
 
@@ -741,30 +739,43 @@ __nv_drm_get_semsurf_ctx_seqno(struct nv_drm_semsurf_fence_ctx *ctx)
 }
 
 static void
-__nv_drm_semsurf_force_complete_pending(struct nv_drm_semsurf_fence_ctx *ctx)
+__nv_drm_semsurf_force_complete_pending_fences(
+    struct nv_drm_semsurf_fence_ctx *ctx,
+    int error)
 {
+    struct list_head pending_fences;
     unsigned long flags;
 
-    /*
-     * No locks are needed for the pending_fences list. This code runs after all
-     * other possible references to the fence context have been removed. The
-     * fences have their own individual locks to protect themselves.
-     */
-    while (!list_empty(&ctx->pending_fences)) {
+    INIT_LIST_HEAD(&pending_fences);
+
+    spin_lock_irqsave(&ctx->lock, flags);
+    list_splice_init(&ctx->pending_fences, &pending_fences);
+    ctx->current_wait_value = 0;
+    spin_unlock_irqrestore(&ctx->lock, flags);
+
+    while (!list_empty(&pending_fences)) {
         struct nv_drm_semsurf_fence *nv_fence = list_first_entry(
-            &ctx->pending_fences,
+            &pending_fences,
             typeof(*nv_fence),
             pending_node);
         struct dma_fence *fence = &nv_fence->base;
 
         list_del(&nv_fence->pending_node);
 
-        dma_fence_set_error(fence, -ETIMEDOUT);
+        dma_fence_set_error(fence, error);
         dma_fence_signal(fence);
 
         /* Remove the pending list's reference */
         dma_fence_put(fence);
     }
+}
+
+static void
+__nv_drm_semsurf_force_complete_pending(struct nv_drm_semsurf_fence_ctx *ctx)
+{
+    unsigned long flags;
+
+    __nv_drm_semsurf_force_complete_pending_fences(ctx, -ETIMEDOUT);
 
     /*
      * The pending waits are also referenced by the fences they are waiting on,
@@ -1000,18 +1011,24 @@ __nv_drm_semsurf_ctx_reg_callbacks(struct nv_drm_semsurf_fence_ctx *ctx)
 
 {
     struct nv_drm_device *nv_dev = ctx->base.nv_dev;
-    struct nv_drm_semsurf_fence_callback *newCallback =
-        __nv_drm_semsurf_new_callback(ctx);
+    struct nv_drm_semsurf_fence_callback *newCallback;
     struct NvKmsKapiSemaphoreSurfaceCallback *newNvKmsCallback;
     NvU64 newWaitValue;
     unsigned long newTimeout;
     NvKmsKapiRegisterWaiterResult kapiRet;
 
+    if (!nv_drm_dev_enter(nv_dev)) {
+        __nv_drm_semsurf_force_complete_pending_fences(ctx, -ENODEV);
+        return;
+    }
+
+    newCallback = __nv_drm_semsurf_new_callback(ctx);
+
     if (!newCallback) {
         NV_DRM_DEV_LOG_ERR(
             nv_dev,
             "Failed to allocate new fence signal callback data");
-        return;
+        goto done;
     }
 
     do {
@@ -1028,8 +1045,7 @@ __nv_drm_semsurf_ctx_reg_callbacks(struct nv_drm_semsurf_fence_ctx *ctx)
         if (newWaitValue == 0) {
             /* No fences remain, so no callback is needed. */
             nv_drm_free(newCallback);
-            newCallback = NULL;
-            return;
+            goto done;
         }
 
         newCallback->wait_value = newWaitValue;
@@ -1070,7 +1086,7 @@ __nv_drm_semsurf_ctx_reg_callbacks(struct nv_drm_semsurf_fence_ctx *ctx)
          * guarantee forward progress in those cases.
          */
         nv_drm_free(newCallback);
-        return;
+        goto done;
     }
 
     nv_drm_mod_timer(&ctx->timer, newTimeout);
@@ -1110,6 +1126,9 @@ __nv_drm_semsurf_ctx_reg_callbacks(struct nv_drm_semsurf_fence_ctx *ctx)
             nv_drm_free(newCallback);
         }
     }
+
+done:
+    nv_drm_dev_exit(nv_dev);
 }
 
 static void __nv_drm_semsurf_fence_ctx_destroy(
@@ -1330,10 +1349,6 @@ int nv_drm_semsurf_fence_ctx_create_ioctl(struct drm_device *dev,
     }
 
     err = __nv_drm_fence_context_gem_init(dev, &ctx->base, &p->handle, filep);
-
-    if (err) {
-        __nv_drm_semsurf_fence_ctx_destroy(&ctx->base);
-    }
 
     return err;
 }
@@ -1578,6 +1593,11 @@ __nv_drm_semsurf_wait_fence_work_cb
     struct nv_drm_device *nv_dev = ctx->base.nv_dev;
     NvKmsKapiRegisterWaiterResult ret;
 
+    if (!nv_drm_dev_enter(nv_dev)) {
+        __nv_drm_semsurf_free_wait_data(wait_data);
+        return;
+    }
+
     /*
      * Note this command applies "newValue" immediately if the semaphore has
      * already reached "waitValue." It only returns NVKMS_KAPI_ALREADY_SIGNALLED
@@ -1597,6 +1617,7 @@ __nv_drm_semsurf_wait_fence_work_cb
                            "Failed to register auto-value-update on pre-wait value for sync FD semaphore surface");
     }
 
+    nv_drm_dev_exit(nv_dev);
     __nv_drm_semsurf_free_wait_data(wait_data);
 }
 

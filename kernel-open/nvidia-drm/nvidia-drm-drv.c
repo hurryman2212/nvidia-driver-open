@@ -841,7 +841,6 @@ static int nv_drm_dev_load(struct drm_device *dev)
             nvKms->releaseOwnership(nv_dev->pDevice);
         }
 #endif
-        nvKms->freeDevice(nv_dev->pDevice);
         NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to create DRM properties");
         return -ENODEV;
     }
@@ -897,7 +896,6 @@ static int nv_drm_dev_load(struct drm_device *dev)
 
 static void nv_drm_dev_unload(struct drm_device *dev)
 {
-    struct NvKmsKapiDevice *pDevice = NULL;
     NvBool recoveryTeardown;
 
     struct nv_drm_device *nv_dev = to_nv_device(dev);
@@ -968,14 +966,44 @@ static void nv_drm_dev_unload(struct drm_device *dev)
         NV_DRM_DEV_LOG_ERR(nv_dev, "Failed to stop event listening");
     }
 
-    /* Unset NvKmsKapiDevice */
+    mutex_unlock(&nv_dev->lock);
+}
 
+static void nv_drm_dev_release(struct kref *ref)
+{
+    struct nv_drm_device *nv_dev =
+        container_of(ref, struct nv_drm_device, ref);
+    struct drm_device *dev = nv_dev->dev;
+    struct NvKmsKapiDevice *pDevice;
+
+    mutex_lock(&nv_dev->lock);
     pDevice = nv_dev->pDevice;
     nv_dev->pDevice = NULL;
-
     mutex_unlock(&nv_dev->lock);
 
-    nvKms->freeDevice(pDevice);
+    if (pDevice != NULL) {
+        nvKms->freeDevice(pDevice);
+    }
+
+    dev->dev_private = NULL;
+    nv_drm_free(nv_dev);
+}
+
+void nv_drm_device_get(struct nv_drm_device *nv_dev)
+{
+    kref_get(&nv_dev->ref);
+}
+
+void nv_drm_device_put(struct nv_drm_device *nv_dev)
+{
+    kref_put(&nv_dev->ref, nv_drm_dev_release);
+}
+
+static void nv_drm_dev_quiesce(struct nv_drm_device *nv_dev)
+{
+    down_write(&nv_dev->access_lock);
+    nv_dev->unplugged = NV_TRUE;
+    up_write(&nv_dev->access_lock);
 }
 
 static int __nv_drm_master_set(struct drm_device *dev,
@@ -2082,6 +2110,8 @@ void nv_drm_register_drm_device(const struct NvKmsKapiGpuInfo *gpu_info)
 
     dev->dev_private = nv_dev;
     nv_dev->dev = dev;
+    kref_init(&nv_dev->ref);
+    init_rwsem(&nv_dev->access_lock);
 
     bus_is_pci =
 #if defined(NV_LINUX)
@@ -2182,7 +2212,10 @@ failed_drm_register:
 
 failed_drm_load:
 
+    nv_drm_device_put(nv_dev);
     drm_dev_put(dev);
+
+    return;
 
 failed_drm_alloc:
 
@@ -2257,8 +2290,8 @@ static void nv_drm_dev_destroy(struct nv_drm_device *nv_dev)
     struct drm_device *dev = nv_dev->dev;
 
     nv_drm_dev_unload(dev);
+    nv_drm_device_put(nv_dev);
     drm_dev_put(dev);
-    nv_drm_free(nv_dev);
 }
 
 /*
@@ -2270,6 +2303,7 @@ void nv_drm_remove(NvU32 gpuId)
 
     if (nv_dev) {
         NV_DRM_DEV_LOG_INFO(nv_dev, "Removing device");
+        nv_drm_dev_quiesce(nv_dev);
         drm_dev_unplug(nv_dev->dev);
         nv_drm_dev_destroy(nv_dev);
     }
@@ -2283,6 +2317,7 @@ void nv_drm_remove_devices(void)
     struct nv_drm_device *nv_dev;
 
     while ((nv_dev = nv_drm_pop_device())) {
+        nv_drm_dev_quiesce(nv_dev);
         drm_dev_unregister(nv_dev->dev);
         nv_drm_dev_destroy(nv_dev);
     }

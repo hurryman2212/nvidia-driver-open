@@ -47,6 +47,8 @@
 void nv_drm_gem_free(struct drm_gem_object *gem)
 {
     struct nv_drm_gem_object *nv_gem = to_nv_gem_object(gem);
+    struct nv_drm_device *nv_dev = nv_gem->nv_dev;
+    struct drm_device *dev = gem->dev;
 
     /* Cleanup core gem object */
     drm_gem_object_release(&nv_gem->base);
@@ -56,6 +58,9 @@ void nv_drm_gem_free(struct drm_gem_object *gem)
 #endif
 
     nv_gem->ops->free(nv_gem);
+
+    nv_drm_device_put(nv_dev);
+    drm_dev_put(dev);
 }
 
 #if !defined(NV_DRM_DRIVER_HAS_GEM_PRIME_CALLBACKS) && \
@@ -137,6 +142,8 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
 #endif
 
     drm_gem_private_object_init(dev, &nv_gem->base, size);
+    drm_dev_get(dev);
+    nv_drm_device_get(nv_dev);
 
     /* Create mmap offset early for drm_gem_prime_mmap(), if possible. */
     if (nv_gem->ops->create_mmap_offset) {
@@ -148,8 +155,13 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
 struct drm_gem_object *nv_drm_gem_prime_import(struct drm_device *dev,
                                                struct dma_buf *dma_buf)
 {
-    struct drm_gem_object *gem_dst;
+    struct drm_gem_object *gem_dst = ERR_PTR(-ENODEV);
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
     struct nv_drm_gem_object *nv_gem_src;
+
+    if (!nv_drm_dev_enter(nv_dev)) {
+        return gem_dst;
+    }
 
     if (dma_buf->owner == dev->driver->fops->owner) {
         nv_gem_src = to_nv_gem_object(dma_buf->priv);
@@ -165,36 +177,56 @@ struct drm_gem_object *nv_drm_gem_prime_import(struct drm_device *dev,
             gem_dst = nv_gem_src->ops->prime_dup(dev, nv_gem_src);
 
             if (gem_dst == NULL) {
-                return ERR_PTR(-ENOTSUPP);
+                gem_dst = ERR_PTR(-ENOTSUPP);
             }
 
-            return gem_dst;
+            goto done;
         }
     }
 
-    return drm_gem_prime_import(dev, dma_buf);
+    gem_dst = drm_gem_prime_import(dev, dma_buf);
+
+done:
+    nv_drm_dev_exit(nv_dev);
+    return gem_dst;
 }
 
 struct sg_table *nv_drm_gem_prime_get_sg_table(struct drm_gem_object *gem)
 {
     struct nv_drm_gem_object *nv_gem = to_nv_gem_object(gem);
+    struct sg_table *sg_table = ERR_PTR(-ENODEV);
 
-    if (nv_gem->ops->prime_get_sg_table != NULL) {
-        return nv_gem->ops->prime_get_sg_table(nv_gem);
+    if (!nv_drm_dev_enter(nv_gem->nv_dev)) {
+        return sg_table;
     }
 
-    return ERR_PTR(-ENOTSUPP);
+    if (nv_gem->ops->prime_get_sg_table != NULL) {
+        sg_table = nv_gem->ops->prime_get_sg_table(nv_gem);
+    } else {
+        sg_table = ERR_PTR(-ENOTSUPP);
+    }
+
+    nv_drm_dev_exit(nv_gem->nv_dev);
+    return sg_table;
 }
 
 void *nv_drm_gem_prime_vmap(struct drm_gem_object *gem)
 {
     struct nv_drm_gem_object *nv_gem = to_nv_gem_object(gem);
+    void *address = ERR_PTR(-ENODEV);
 
-    if (nv_gem->ops->prime_vmap != NULL) {
-        return nv_gem->ops->prime_vmap(nv_gem);
+    if (!nv_drm_dev_enter(nv_gem->nv_dev)) {
+        return address;
     }
 
-    return ERR_PTR(-ENOTSUPP);
+    if (nv_gem->ops->prime_vmap != NULL) {
+        address = nv_gem->ops->prime_vmap(nv_gem);
+    } else {
+        address = ERR_PTR(-ENOTSUPP);
+    }
+
+    nv_drm_dev_exit(nv_gem->nv_dev);
+    return address;
 }
 
 void nv_drm_gem_prime_vunmap(struct drm_gem_object *gem, void *address)
@@ -251,6 +283,7 @@ int nv_drm_mmap(struct file *file, struct vm_area_struct *vma)
 {
     struct drm_file *priv = file->private_data;
     struct drm_device *dev = priv->minor->dev;
+    struct nv_drm_device *nv_dev = to_nv_device(dev);
     struct drm_gem_object *obj = NULL;
     struct drm_vma_offset_node *node;
     int ret = 0;
@@ -299,7 +332,13 @@ int nv_drm_mmap(struct file *file, struct vm_area_struct *vma)
     }
 #endif
 
+    if (!nv_drm_dev_enter(nv_dev)) {
+        ret = -ENODEV;
+        goto done;
+    }
+
     ret = nv_gem->ops->mmap(nv_gem, vma);
+    nv_drm_dev_exit(nv_dev);
 
 done:
     nv_drm_gem_object_unreference_unlocked(nv_gem);
@@ -357,12 +396,16 @@ static vm_fault_t __nv_drm_vma_fault(struct vm_area_struct *vma,
 {
     struct drm_gem_object *gem = vma->vm_private_data;
     struct nv_drm_gem_object *nv_gem = to_nv_gem_object(gem);
+    vm_fault_t ret;
 
-    if (!nv_gem) {
+    if (!nv_gem || !nv_drm_dev_enter(nv_gem->nv_dev)) {
         return VM_FAULT_SIGBUS;
     }
 
-    return nv_gem->ops->handle_vma_fault(nv_gem, vma, vmf);
+    ret = nv_gem->ops->handle_vma_fault(nv_gem, vma, vmf);
+    nv_drm_dev_exit(nv_gem->nv_dev);
+
+    return ret;
 }
 
 /*
