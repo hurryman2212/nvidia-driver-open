@@ -2473,26 +2473,26 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
         return;
     }
 
-    nv_linux_remove_device_locked(nvl);
-
+    /* Notify clients while the RM and Linux device state is still valid. */
     rm_notify_gpu_removal(sp, nv);
 
     /*
-     * Sanity check: A removed device shouldn't have a non-zero usage_count.
+     * Preserve the device state until existing clients have closed. Removing
+     * it first leaves their teardown paths with stale core and PCI pointers.
      * For eGPU, fall off the bus along with clients active is a valid scenario.
-     * Hence skipping the sanity check for eGPU.
+     * Hence skipping the wait for eGPU.
      */
     if ((atomic64_read(&nvl->usage_count) != 0) && !(nv->is_external_gpu))
     {
         nv_printf(NV_DBG_ERRORS,
-                  "NVRM: Attempting to remove device %04x:%02x:%02x.%x with non-zero usage count %lld!\n",
+                  "NVRM: Waiting to remove device %04x:%02x:%02x.%x with non-zero usage count %lld!\n",
                   NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
                   NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn),
                   (long long)atomic64_read(&nvl->usage_count));
 
         /*
-         * We can't return from this function without corrupting state, so we wait for
-         * the usage count to go to zero.
+         * We can't return from this function without corrupting state, so wait
+         * for the usage count to go to zero.
          */
         while (atomic64_read(&nvl->usage_count) != 0)
         {
@@ -2527,6 +2527,8 @@ static void nv_pci_remove_helper(struct pci_dev *pci_dev, bool block_if_gpu_in_u
                   NV_PCI_DOMAIN_NUMBER(pci_dev), NV_PCI_BUS_NUMBER(pci_dev),
                   NV_PCI_SLOT_NUMBER(pci_dev), PCI_FUNC(pci_dev->devfn));
     }
+
+    nv_linux_remove_device_locked(nvl);
 
     rm_check_for_gpu_surprise_removal(sp, nv);
 
