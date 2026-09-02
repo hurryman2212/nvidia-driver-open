@@ -53,6 +53,13 @@ void __nv_drm_gem_user_memory_free(struct nv_drm_gem_object *nv_gem)
     nv_drm_free(nv_user_memory);
 }
 
+static bool
+__nv_drm_gem_user_memory_prepare_for_recovery(struct nv_drm_gem_object *nv_gem)
+{
+    (void)nv_gem;
+    return true;
+}
+
 static struct sg_table *__nv_drm_gem_user_memory_prime_get_sg_table(
     struct nv_drm_gem_object *nv_gem)
 {
@@ -174,6 +181,7 @@ static int __nv_drm_gem_user_create_mmap_offset(
 
 const struct nv_drm_gem_object_funcs __nv_gem_user_memory_ops = {
     .free = __nv_drm_gem_user_memory_free,
+    .prepare_for_recovery = __nv_drm_gem_user_memory_prepare_for_recovery,
     .prime_get_sg_table = __nv_drm_gem_user_memory_prime_get_sg_table,
     .prime_vmap = __nv_drm_gem_user_memory_prime_vmap,
     .prime_vunmap = __nv_drm_gem_user_memory_prime_vunmap,
