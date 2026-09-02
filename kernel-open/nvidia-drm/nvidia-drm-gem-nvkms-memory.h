@@ -47,6 +47,7 @@ struct nv_drm_gem_nvkms_memory {
     void *pNumaVMapAddress;
 #endif
     bool was_mmapped;
+    bool recovery_pinned_pages;
 
     struct page **pages;
     unsigned long pages_count;

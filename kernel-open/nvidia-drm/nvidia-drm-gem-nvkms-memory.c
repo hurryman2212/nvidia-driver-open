@@ -41,6 +41,9 @@ static void __nv_drm_gem_nvkms_memory_free(struct nv_drm_gem_object *nv_gem)
     struct nv_drm_device *nv_dev = nv_gem->nv_dev;
     struct nv_drm_gem_nvkms_memory *nv_nvkms_memory =
         to_nv_nvkms_memory(nv_gem);
+    unsigned long i;
+
+    mutex_lock(&nv_nvkms_memory->map_lock);
 
     if (nv_nvkms_memory->physically_mapped) {
         if (nv_nvkms_memory->pWriteCombinedIORemapAddress != NULL) {
@@ -53,10 +56,17 @@ static void __nv_drm_gem_nvkms_memory_free(struct nv_drm_gem_object *nv_gem)
         }
 #endif
 
-        nvKms->unmapMemory(nv_dev->pDevice,
-                           nv_nvkms_memory->base.pMemory,
-                           NVKMS_KAPI_MAPPING_TYPE_USER,
-                           nv_nvkms_memory->pPhysicalAddress);
+        if (nv_nvkms_memory->base.pMemory != NULL) {
+            nvKms->unmapMemory(nv_dev->pDevice, nv_nvkms_memory->base.pMemory,
+                               NVKMS_KAPI_MAPPING_TYPE_USER,
+                               nv_nvkms_memory->pPhysicalAddress);
+        }
+    }
+
+    if (nv_nvkms_memory->recovery_pinned_pages) {
+        for (i = 0; i < nv_nvkms_memory->pages_count; i++) {
+            put_page(nv_nvkms_memory->pages[i]);
+        }
     }
 
     if (nv_nvkms_memory->pages_count != 0) {
@@ -64,15 +74,60 @@ static void __nv_drm_gem_nvkms_memory_free(struct nv_drm_gem_object *nv_gem)
     }
 
     /* Decrement GC6 blocker if it's still held */
-    if (nv_nvkms_memory->was_mmapped) {
+    if (nv_nvkms_memory->was_mmapped && nv_nvkms_memory->base.pMemory != NULL) {
         nvKms->gc6BlockerRefCntDec(nv_dev->pDevice);
     }
 
     /* Free NvKmsKapiMemory handle associated with this gem object */
 
-    nvKms->freeMemory(nv_dev->pDevice, nv_nvkms_memory->base.pMemory);
+    if (nv_nvkms_memory->base.pMemory != NULL) {
+        nvKms->freeMemory(nv_dev->pDevice, nv_nvkms_memory->base.pMemory);
+    }
+
+    mutex_unlock(&nv_nvkms_memory->map_lock);
 
     nv_drm_free(nv_nvkms_memory);
+}
+
+static bool
+__nv_drm_gem_nvkms_memory_prepare_for_recovery(struct nv_drm_gem_object *nv_gem)
+{
+    struct nv_drm_gem_nvkms_memory *nv_nvkms_memory =
+        to_nv_nvkms_memory(nv_gem);
+    struct nv_drm_device *nv_dev = nv_gem->nv_dev;
+    unsigned long i;
+    bool prepared = false;
+
+    mutex_lock(&nv_nvkms_memory->map_lock);
+
+    if (nv_gem->pMemory == NULL) {
+        prepared = nv_nvkms_memory->recovery_pinned_pages;
+        goto done;
+    }
+
+    if (nvKms->isVidmem(nv_gem->pMemory) ||
+        nv_nvkms_memory->physically_mapped || nv_nvkms_memory->was_mmapped ||
+        nv_nvkms_memory->pages_count == 0) {
+        goto done;
+    }
+
+    /*
+     * An importing DRM device may retain its mapped sg_table after NVIDIA RM
+     * releases this allocation.  Hold the backing pages until the last GEM
+     * reference closes so they cannot be returned to the page allocator.
+     */
+    for (i = 0; i < nv_nvkms_memory->pages_count; i++) {
+        get_page(nv_nvkms_memory->pages[i]);
+    }
+    nv_nvkms_memory->recovery_pinned_pages = true;
+
+    nvKms->freeMemory(nv_dev->pDevice, nv_gem->pMemory);
+    nv_gem->pMemory = NULL;
+    prepared = true;
+
+done:
+    mutex_unlock(&nv_nvkms_memory->map_lock);
+    return prepared;
 }
 
 static int __nv_drm_gem_nvkms_map(
@@ -345,12 +400,14 @@ static void __nv_drm_gem_nvkms_prime_vunmap(
     struct nv_drm_gem_nvkms_memory *nv_nvkms_memory =
         to_nv_nvkms_memory(nv_gem);
 
+    mutex_lock(&nv_nvkms_memory->map_lock);
+
     if (!nv_nvkms_memory->physically_mapped &&
         nv_nvkms_memory->pages_count > 0) {
         nv_drm_vunmap(address);
     }
 
-    if (nv_nvkms_memory->physically_mapped &&
+    if (nv_nvkms_memory->physically_mapped && nv_gem->pMemory != NULL &&
         nvKms->isVidmem(nv_gem->pMemory)) {
         /*
          * Decrement the GC6 blocker refcount now that the mapping is no longer
@@ -358,6 +415,8 @@ static void __nv_drm_gem_nvkms_prime_vunmap(
          */
         nvKms->gc6BlockerRefCntDec(nv_gem->nv_dev->pDevice);
     }
+
+    mutex_unlock(&nv_nvkms_memory->map_lock);
 }
 
 static int __nv_drm_gem_map_nvkms_memory_offset(
@@ -393,6 +452,7 @@ static struct sg_table *__nv_drm_gem_nvkms_memory_prime_get_sg_table(
 
 const struct nv_drm_gem_object_funcs nv_gem_nvkms_memory_ops = {
     .free = __nv_drm_gem_nvkms_memory_free,
+    .prepare_for_recovery = __nv_drm_gem_nvkms_memory_prepare_for_recovery,
     .prime_dup = __nv_drm_gem_nvkms_prime_dup,
     .prime_vmap = __nv_drm_gem_nvkms_prime_vmap,
     .prime_vunmap = __nv_drm_gem_nvkms_prime_vunmap,
@@ -425,6 +485,7 @@ static int __nv_drm_nvkms_gem_obj_init(
     nv_nvkms_memory->pWriteCombinedIORemapAddress = NULL;
     nv_nvkms_memory->physically_mapped = false;
     nv_nvkms_memory->was_mmapped = false;
+    nv_nvkms_memory->recovery_pinned_pages = false;
 
     if (!nvKms->isVidmem(pMemory) &&
         !nvKms->getMemoryPages(nv_dev->pDevice,

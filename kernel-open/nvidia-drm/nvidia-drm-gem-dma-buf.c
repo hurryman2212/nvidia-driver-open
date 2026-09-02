@@ -53,6 +53,19 @@ void __nv_drm_gem_dma_buf_free(struct nv_drm_gem_object *nv_gem)
     nv_drm_free(nv_dma_buf);
 }
 
+static bool
+__nv_drm_gem_dma_buf_prepare_for_recovery(struct nv_drm_gem_object *nv_gem)
+{
+    struct nv_drm_device *nv_dev = nv_gem->nv_dev;
+
+    if (nv_gem->pMemory != NULL) {
+        nvKms->freeMemory(nv_dev->pDevice, nv_gem->pMemory);
+        nv_gem->pMemory = NULL;
+    }
+
+    return true;
+}
+
 static int __nv_drm_gem_dma_buf_create_mmap_offset(
     struct nv_drm_device *nv_dev,
     struct nv_drm_gem_object *nv_gem,
@@ -128,6 +141,7 @@ static int __nv_drm_gem_dma_buf_mmap(struct nv_drm_gem_object *nv_gem,
 
 const struct nv_drm_gem_object_funcs __nv_gem_dma_buf_ops = {
     .free = __nv_drm_gem_dma_buf_free,
+    .prepare_for_recovery = __nv_drm_gem_dma_buf_prepare_for_recovery,
     .create_mmap_offset = __nv_drm_gem_dma_buf_create_mmap_offset,
     .mmap = __nv_drm_gem_dma_buf_mmap,
 };

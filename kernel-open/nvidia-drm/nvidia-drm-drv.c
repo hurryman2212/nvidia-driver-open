@@ -894,6 +894,20 @@ static int nv_drm_dev_load(struct drm_device *dev)
     return 0;
 }
 
+static void nv_drm_dev_release_nvkms(struct nv_drm_device *nv_dev)
+{
+    struct NvKmsKapiDevice *pDevice;
+
+    mutex_lock(&nv_dev->lock);
+    pDevice = nv_dev->pDevice;
+    nv_dev->pDevice = NULL;
+    mutex_unlock(&nv_dev->lock);
+
+    if (pDevice != NULL) {
+        nvKms->freeDevice(pDevice);
+    }
+}
+
 static void nv_drm_dev_unload(struct drm_device *dev)
 {
     NvBool recoveryTeardown;
@@ -967,6 +981,11 @@ static void nv_drm_dev_unload(struct drm_device *dev)
     }
 
     mutex_unlock(&nv_dev->lock);
+
+    if (recoveryTeardown) {
+        nv_drm_gem_prepare_objects_for_recovery(nv_dev);
+        nv_drm_dev_release_nvkms(nv_dev);
+    }
 }
 
 static void nv_drm_dev_release(struct kref *ref)
@@ -974,16 +993,8 @@ static void nv_drm_dev_release(struct kref *ref)
     struct nv_drm_device *nv_dev =
         container_of(ref, struct nv_drm_device, ref);
     struct drm_device *dev = nv_dev->dev;
-    struct NvKmsKapiDevice *pDevice;
 
-    mutex_lock(&nv_dev->lock);
-    pDevice = nv_dev->pDevice;
-    nv_dev->pDevice = NULL;
-    mutex_unlock(&nv_dev->lock);
-
-    if (pDevice != NULL) {
-        nvKms->freeDevice(pDevice);
-    }
+    nv_drm_dev_release_nvkms(nv_dev);
 
     dev->dev_private = NULL;
     nv_drm_free(nv_dev);
@@ -2098,6 +2109,10 @@ void nv_drm_register_drm_device(const struct NvKmsKapiGpuInfo *gpu_info)
     nv_dev->gpu_mig_device = gpu_info->migDevice;
 
     mutex_init(&nv_dev->lock);
+    mutex_init(&nv_dev->gem_lock);
+    INIT_LIST_HEAD(&nv_dev->gem_objects);
+    init_waitqueue_head(&nv_dev->gem_wait);
+    atomic_set(&nv_dev->gem_generation, 0);
 
     /* Allocate DRM device */
 

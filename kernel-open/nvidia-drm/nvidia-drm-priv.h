@@ -36,7 +36,9 @@
 #include <drm/drm_gem.h>
 
 #include <linux/kref.h>
+#include <linux/list.h>
 #include <linux/rwsem.h>
+#include <linux/wait.h>
 
 #include "nvidia-drm-os-interface.h"
 
@@ -136,6 +138,17 @@ struct nv_drm_device {
      *   mutex_unlock(nv_drm_device::lock);
      */
     struct mutex lock;
+
+    /*
+     * Track GEM objects that can outlive a recovery unplug.  gem_destroying
+     * prevents NVKMS teardown from racing a GEM destructor that still needs
+     * the failed device.
+     */
+    struct mutex gem_lock;
+    struct list_head gem_objects;
+    wait_queue_head_t gem_wait;
+    atomic_t gem_generation;
+    unsigned int gem_destroying;
 
     NvU32 pitchAlignment;
 

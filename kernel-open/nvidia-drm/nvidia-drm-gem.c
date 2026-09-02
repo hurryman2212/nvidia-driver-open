@@ -50,6 +50,13 @@ void nv_drm_gem_free(struct drm_gem_object *gem)
     struct nv_drm_device *nv_dev = nv_gem->nv_dev;
     struct drm_device *dev = gem->dev;
 
+    mutex_lock(&nv_dev->gem_lock);
+    list_del(&nv_gem->list);
+    nv_dev->gem_destroying++;
+    atomic_inc(&nv_dev->gem_generation);
+    mutex_unlock(&nv_dev->gem_lock);
+    wake_up_all(&nv_dev->gem_wait);
+
     /* Cleanup core gem object */
     drm_gem_object_release(&nv_gem->base);
 
@@ -59,8 +66,53 @@ void nv_drm_gem_free(struct drm_gem_object *gem)
 
     nv_gem->ops->free(nv_gem);
 
+    mutex_lock(&nv_dev->gem_lock);
+    nv_dev->gem_destroying--;
+    atomic_inc(&nv_dev->gem_generation);
+    mutex_unlock(&nv_dev->gem_lock);
+    wake_up_all(&nv_dev->gem_wait);
+
     nv_drm_device_put(nv_dev);
     drm_dev_put(dev);
+}
+
+void nv_drm_gem_prepare_objects_for_recovery(struct nv_drm_device *nv_dev)
+{
+    unsigned int previous_pending = ~0U;
+
+    for (;;) {
+        struct nv_drm_gem_object *nv_gem;
+        int generation;
+        unsigned int pending;
+
+        mutex_lock(&nv_dev->gem_lock);
+
+        pending = nv_dev->gem_destroying;
+
+        list_for_each_entry(nv_gem, &nv_dev->gem_objects, list) {
+            if (nv_gem->ops->prepare_for_recovery == NULL ||
+                !nv_gem->ops->prepare_for_recovery(nv_gem)) {
+                pending++;
+            }
+        }
+
+        generation = atomic_read(&nv_dev->gem_generation);
+        mutex_unlock(&nv_dev->gem_lock);
+
+        if (pending == 0) {
+            return;
+        }
+
+        if (pending != previous_pending) {
+            NV_DRM_DEV_LOG_INFO(nv_dev,
+                "Waiting for %u GPU-dependent DRM object(s) before recovery",
+                pending);
+            previous_pending = pending;
+        }
+
+        wait_event(nv_dev->gem_wait,
+                   atomic_read(&nv_dev->gem_generation) != generation);
+    }
 }
 
 #if !defined(NV_DRM_DRIVER_HAS_GEM_PRIME_CALLBACKS) && \
@@ -130,6 +182,7 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
     nv_gem->ops = ops;
 
     nv_gem->pMemory = pMemory;
+    INIT_LIST_HEAD(&nv_gem->list);
 
     /* Initialize the gem object */
 
@@ -144,6 +197,12 @@ void nv_drm_gem_object_init(struct nv_drm_device *nv_dev,
     drm_gem_private_object_init(dev, &nv_gem->base, size);
     drm_dev_get(dev);
     nv_drm_device_get(nv_dev);
+
+    mutex_lock(&nv_dev->gem_lock);
+    list_add_tail(&nv_gem->list, &nv_dev->gem_objects);
+    atomic_inc(&nv_dev->gem_generation);
+    mutex_unlock(&nv_dev->gem_lock);
+    wake_up_all(&nv_dev->gem_wait);
 
     /* Create mmap offset early for drm_gem_prime_mmap(), if possible. */
     if (nv_gem->ops->create_mmap_offset) {

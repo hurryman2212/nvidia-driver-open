@@ -416,8 +416,17 @@ __nv_drm_fence_context_gem_free(struct nv_drm_gem_object *nv_gem)
     nv_fence_context->ops->destroy(nv_fence_context);
 }
 
+static bool
+__nv_drm_fence_context_prepare_for_recovery(struct nv_drm_gem_object *nv_gem)
+{
+    /* Fence destruction still releases NVKMS resources. */
+    (void)nv_gem;
+    return false;
+}
+
 const struct nv_drm_gem_object_funcs nv_fence_context_gem_ops = {
     .free = __nv_drm_fence_context_gem_free,
+    .prepare_for_recovery = __nv_drm_fence_context_prepare_for_recovery,
 };
 
 static inline

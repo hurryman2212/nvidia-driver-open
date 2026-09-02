@@ -46,6 +46,8 @@ struct nv_drm_gem_object;
 
 struct nv_drm_gem_object_funcs {
     void (*free)(struct nv_drm_gem_object *nv_gem);
+    /* Called with nv_drm_device::gem_lock held after device unplug. */
+    bool (*prepare_for_recovery)(struct nv_drm_gem_object *nv_gem);
     struct sg_table *(*prime_get_sg_table)(struct nv_drm_gem_object *nv_gem);
     void *(*prime_vmap)(struct nv_drm_gem_object *nv_gem);
     void (*prime_vunmap)(struct nv_drm_gem_object *nv_gem, void *address);
@@ -62,6 +64,7 @@ struct nv_drm_gem_object_funcs {
 
 struct nv_drm_gem_object {
     struct drm_gem_object base;
+    struct list_head list;
 
     struct nv_drm_device *nv_dev;
     const struct nv_drm_gem_object_funcs *ops;
@@ -129,6 +132,8 @@ done:
 }
 
 void nv_drm_gem_free(struct drm_gem_object *gem);
+
+void nv_drm_gem_prepare_objects_for_recovery(struct nv_drm_device *nv_dev);
 
 static inline struct nv_drm_gem_object *nv_drm_gem_object_lookup(
     struct drm_file *filp,
